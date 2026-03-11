@@ -1,0 +1,63 @@
+{
+	"name": "strus-middleware",
+	"version": "0.3.0",
+	"type": "module",
+	"description": "API response monitoring middleware for Strus",
+	"license": "MIT",
+	"author": "Dirk Beukes",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Stoffberg/strus-middleware.git"
+	},
+	"homepage": "https://strus.io",
+	"bugs": {
+		"url": "https://github.com/Stoffberg/strus-middleware/issues"
+	},
+	"keywords": [
+		"strus",
+		"api",
+		"monitoring",
+		"middleware",
+		"express",
+		"hono",
+		"fastify",
+		"observability",
+		"healthcare"
+	],
+	"exports": {
+		".": {
+			"import": "./dist/index.mjs",
+			"types": "./dist/index.d.mts"
+		},
+		"./extract": {
+			"import": "./dist/extract/index.mjs",
+			"types": "./dist/extract/index.d.mts"
+		},
+		"./express": {
+			"import": "./dist/adapters/express.mjs",
+			"types": "./dist/adapters/express.d.mts"
+		},
+		"./hono": {
+			"import": "./dist/adapters/hono.mjs",
+			"types": "./dist/adapters/hono.d.mts"
+		},
+		"./fastify": {
+			"import": "./dist/adapters/fastify.mjs",
+			"types": "./dist/adapters/fastify.d.mts"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"test": "bun test",
+		"check-types": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@types/bun": "^1",
+		"tsdown": "^0.21.1",
+		"typescript": "^5"
+	}
+}
