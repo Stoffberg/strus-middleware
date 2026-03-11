@@ -138,9 +138,14 @@ describe("strusHono", () => {
 			};
 
 			await middleware(c as any, async () => {});
+			await client.flushAsync();
 
-			const event = (client as any).buffer[0];
-			expect(event.endpointId).toBe("GET /api/text");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			const reqBody = JSON.parse(
+				(fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+					.body as string,
+			);
+			expect(reqBody.events[0].endpointId).toBe("GET /api/text");
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

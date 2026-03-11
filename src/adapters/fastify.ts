@@ -21,18 +21,24 @@ type FastifyInstance = {
 	) => void;
 };
 
+type FastifyPluginDone = (err?: Error) => void;
+
 export function strusFastify(client: StrusClient) {
-	return (fastify: FastifyInstance) => {
+	return (
+		fastify: FastifyInstance,
+		_opts: unknown,
+		done: FastifyPluginDone,
+	) => {
 		fastify.addHook(
 			"onSend",
 			(
 				request: FastifyRequest,
 				reply: FastifyReply,
 				payload: unknown,
-				done: (err: null, payload: unknown) => void,
+				hookDone: (err: null, payload: unknown) => void,
 			) => {
 				if (!client.config.enabled) {
-					done(null, payload);
+					hookDone(null, payload);
 					return;
 				}
 
@@ -59,8 +65,10 @@ export function strusFastify(client: StrusClient) {
 
 				client.flushAsync();
 
-				done(null, payload);
+				hookDone(null, payload);
 			},
 		);
+
+		done();
 	};
 }

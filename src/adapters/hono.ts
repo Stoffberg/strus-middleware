@@ -24,8 +24,9 @@ export function strusHono(client: StrusClient) {
 
 		await next();
 
+		const response = c.res as unknown as Response;
+
 		try {
-			const response = c.res as unknown as Response;
 			const cloned = response.clone();
 			const body = await cloned.json();
 
@@ -44,9 +45,10 @@ export function strusHono(client: StrusClient) {
 			});
 		}
 
+		const flush = client.flushAsync();
 		const waitUntil = c.executionCtx?.waitUntil;
 		if (waitUntil) {
-			waitUntil.call(c.executionCtx, client.flushAsync());
+			waitUntil.call(c.executionCtx, flush);
 		}
 	};
 }

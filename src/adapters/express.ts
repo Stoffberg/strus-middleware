@@ -13,8 +13,6 @@ type ExpressResponse = {
 type ExpressNextFunction = () => void;
 
 export function strusExpress(client: StrusClient) {
-	const chunks: Map<ExpressResponse, Buffer[]> = new Map();
-
 	return (
 		req: ExpressRequest,
 		res: ExpressResponse,
@@ -28,7 +26,6 @@ export function strusExpress(client: StrusClient) {
 		const originalWrite = (res as any).write;
 		const originalEnd = (res as any).end;
 		const responseChunks: Buffer[] = [];
-		chunks.set(res, responseChunks);
 
 		(res as any).write = function (chunk: any, ...args: any[]) {
 			if (chunk) {
@@ -46,7 +43,7 @@ export function strusExpress(client: StrusClient) {
 				);
 			}
 
-			chunks.delete(res);
+			const result = originalEnd.apply(this, [chunk, ...args]);
 
 			try {
 				const body = Buffer.concat(responseChunks).toString("utf-8");
@@ -68,7 +65,7 @@ export function strusExpress(client: StrusClient) {
 
 			client.flushAsync();
 
-			return originalEnd.apply(this, [chunk, ...args]);
+			return result;
 		};
 
 		next();

@@ -1,6 +1,6 @@
 {
 	"name": "strus-middleware",
-	"version": "0.5.0",
+	"version": "1.0.0",
 	"type": "module",
 	"description": "API response monitoring middleware for Strus",
 	"license": "MIT",
@@ -21,6 +21,7 @@
 		"express",
 		"hono",
 		"fastify",
+		"nextjs",
 		"observability",
 		"healthcare"
 	],
@@ -44,6 +45,10 @@
 		"./fastify": {
 			"import": "./dist/adapters/fastify.mjs",
 			"types": "./dist/adapters/fastify.d.mts"
+		},
+		"./nextjs": {
+			"import": "./dist/adapters/nextjs.mjs",
+			"types": "./dist/adapters/nextjs.d.mts"
 		}
 	},
 	"files": [

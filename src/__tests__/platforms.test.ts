@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { strusExpress } from "../adapters/express";
 import { strusFastify } from "../adapters/fastify";
 import { strusHono } from "../adapters/hono";
+import { strusNextjs } from "../adapters/nextjs";
 import { StrusClient } from "../core";
 
 const FAKE_ENDPOINT = "https://ingest.strus.io/telemetry";
@@ -171,7 +172,7 @@ function simulateFastifyRequest(
 		},
 	};
 
-	plugin(fastify as any);
+	plugin(fastify as any, {}, () => {});
 
 	return new Promise<void>((resolve) => {
 		hookHandler(request, reply, payload, (_err: null, _payload: unknown) => {
@@ -904,6 +905,242 @@ describe("edge cases across all platforms", () => {
 			});
 
 			expect((client as any).timerStarted).toBe(true);
+		}),
+	);
+});
+
+async function simulateNextjsRequest(
+	client: StrusClient,
+	opts: {
+		method?: string;
+		path?: string;
+		body?: unknown;
+		statusCode?: number;
+		waitUntil?: (p: Promise<unknown>) => void;
+		useGlobalWaitUntil?: boolean;
+	} = {},
+) {
+	const {
+		method = "GET",
+		path = "/api/data",
+		body = { status: "ok" },
+		statusCode = 200,
+		waitUntil,
+		useGlobalWaitUntil = false,
+	} = opts;
+
+	const strus = strusNextjs(client);
+
+	const handler = strus.wrapHandler(async () => {
+		return new Response(JSON.stringify(body), {
+			status: statusCode,
+			headers: { "Content-Type": "application/json" },
+		});
+	});
+
+	const req = new Request(`https://example.com${path}`, { method });
+
+	const ctx = waitUntil ? { waitUntil } : undefined;
+
+	if (useGlobalWaitUntil && waitUntil) {
+		(globalThis as any)[Symbol.for("@next/request-context")] = {
+			get: () => ({ waitUntil }),
+		};
+	}
+
+	const response = await handler(req as any, ctx);
+
+	if (useGlobalWaitUntil) {
+		delete (globalThis as any)[Symbol.for("@next/request-context")];
+	}
+
+	return response;
+}
+
+describe("Next.js Route Handlers (Vercel)", () => {
+	let client: StrusClient;
+	afterEach(async () => {
+		if (client) await client.shutdown();
+	});
+
+	test(
+		"wraps route handler and observes response",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+
+			await simulateNextjsRequest(client, { path: "/api/users" });
+			await client.flushAsync();
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			const reqBody = JSON.parse(
+				(fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+					.body as string,
+			);
+			expect(reqBody.events[0].endpointId).toBe("GET /api/users");
+		}),
+	);
+
+	test(
+		"uses event.waitUntil when provided as second arg",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+			const promises: Promise<unknown>[] = [];
+			const waitUntil = mock((p: Promise<unknown>) => {
+				promises.push(p);
+			});
+
+			await simulateNextjsRequest(client, {
+				path: "/api/data",
+				waitUntil,
+			});
+
+			expect(waitUntil).toHaveBeenCalledTimes(1);
+			await Promise.all(promises);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		}),
+	);
+
+	test(
+		"falls back to global @next/request-context waitUntil",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+			const promises: Promise<unknown>[] = [];
+			const waitUntil = (p: Promise<unknown>) => {
+				promises.push(p);
+			};
+
+			await simulateNextjsRequest(client, {
+				path: "/api/global",
+				waitUntil,
+				useGlobalWaitUntil: true,
+			});
+
+			await Promise.all(promises);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		}),
+	);
+
+	test(
+		"works without any waitUntil (self hosted Next.js)",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+
+			await simulateNextjsRequest(client, { path: "/api/selfhosted" });
+			await client.flushAsync();
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		}),
+	);
+
+	test(
+		"preserves original response to caller",
+		withFetchMock(async () => {
+			client = createClient();
+
+			const strus = strusNextjs(client);
+			const handler = strus.wrapHandler(async () => {
+				return new Response(JSON.stringify({ id: 42 }), {
+					status: 201,
+					headers: { "Content-Type": "application/json", "X-Custom": "yes" },
+				});
+			});
+
+			const req = new Request("https://example.com/api/create", {
+				method: "POST",
+			});
+			const res = await handler(req as any);
+
+			expect(res.status).toBe(201);
+			expect(res.headers.get("X-Custom")).toBe("yes");
+			const body = (await res.json()) as { id: number };
+			expect(body.id).toBe(42);
+		}),
+	);
+
+	test(
+		"handles non-json response without crashing",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+
+			const strus = strusNextjs(client);
+			const handler = strus.wrapHandler(async () => {
+				return new Response("plain text", { status: 200 });
+			});
+
+			const req = new Request("https://example.com/api/text", {
+				method: "GET",
+			});
+			await handler(req as any);
+			await client.flushAsync();
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			const reqBody = JSON.parse(
+				(fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+					.body as string,
+			);
+			expect(reqBody.events[0].endpointId).toBe("GET /api/text");
+		}),
+	);
+
+	test(
+		"disabled client does not wrap or observe",
+		withFetchMock(async (fetchMock) => {
+			client = createClient({ enabled: false });
+
+			await simulateNextjsRequest(client);
+			await client.flushAsync();
+
+			expect(fetchMock).not.toHaveBeenCalled();
+		}),
+	);
+});
+
+describe("Next.js Middleware", () => {
+	let client: StrusClient;
+	afterEach(async () => {
+		if (client) await client.shutdown();
+	});
+
+	test(
+		"direct observe + flushAsync for middleware pattern",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+
+			client.observe({
+				method: "GET",
+				path: "/dashboard",
+				statusCode: 200,
+				responseBody: null,
+			});
+
+			await client.flushAsync();
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		}),
+	);
+});
+
+describe("Next.js on Cloudflare (via next-on-pages / OpenNext)", () => {
+	let client: StrusClient;
+	afterEach(async () => {
+		if (client) await client.shutdown();
+	});
+
+	test(
+		"route handler with CF executionCtx.waitUntil via event arg",
+		withFetchMock(async (fetchMock) => {
+			client = createClient();
+			const promises: Promise<unknown>[] = [];
+			const waitUntil = mock((p: Promise<unknown>) => {
+				promises.push(p);
+			});
+
+			await simulateNextjsRequest(client, {
+				path: "/api/cf-next",
+				waitUntil,
+			});
+
+			await Promise.all(promises);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
 		}),
 	);
 });
