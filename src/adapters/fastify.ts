@@ -57,6 +57,8 @@ export function strusFastify(client: StrusClient) {
 					});
 				}
 
+				client.flushAsync();
+
 				done(null, payload);
 			},
 		);

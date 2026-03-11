@@ -66,6 +66,8 @@ export function strusExpress(client: StrusClient) {
 				});
 			}
 
+			client.flushAsync();
+
 			return originalEnd.apply(this, [chunk, ...args]);
 		};
 

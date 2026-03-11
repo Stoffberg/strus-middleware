@@ -21,6 +21,7 @@ export class StrusClient {
 	readonly config: StrusConfig;
 	private buffer: TelemetryPayload[] = [];
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
+	private timerStarted = false;
 	private pendingFlush: Promise<void> | null = null;
 	private shutdownPromise: Promise<void> | null = null;
 
@@ -28,19 +29,12 @@ export class StrusClient {
 		input: Pick<StrusConfig, "apiKey"> & Partial<Omit<StrusConfig, "apiKey">>,
 	) {
 		this.config = resolveConfig(input);
-		if (this.config.enabled) {
-			this.flushTimer = setInterval(
-				() => this.flush(),
-				this.config.flushIntervalMs,
-			);
-			if (typeof this.flushTimer === "object" && "unref" in this.flushTimer) {
-				(this.flushTimer as { unref: () => void }).unref();
-			}
-		}
 	}
 
 	observe(input: ObserveInput): void {
 		if (!this.config.enabled) return;
+
+		this.ensureTimer();
 
 		try {
 			const result = extractMetadata(
@@ -100,6 +94,23 @@ export class StrusClient {
 
 		this.shutdownPromise = this.performShutdown();
 		return this.shutdownPromise;
+	}
+
+	private ensureTimer(): void {
+		if (this.timerStarted) return;
+		this.timerStarted = true;
+
+		try {
+			this.flushTimer = setInterval(
+				() => this.flush(),
+				this.config.flushIntervalMs,
+			);
+			if (typeof this.flushTimer === "object" && "unref" in this.flushTimer) {
+				(this.flushTimer as { unref: () => void }).unref();
+			}
+		} catch {
+			this.flushTimer = null;
+		}
 	}
 
 	private async performShutdown(): Promise<void> {
