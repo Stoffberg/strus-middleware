@@ -21,7 +21,7 @@ export class StrusClient {
 	readonly config: StrusConfig;
 	private buffer: TelemetryPayload[] = [];
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
-	private flushing = false;
+	private pendingFlush: Promise<void> | null = null;
 	private shutdownPromise: Promise<void> | null = null;
 
 	constructor(
@@ -33,6 +33,9 @@ export class StrusClient {
 				() => this.flush(),
 				this.config.flushIntervalMs,
 			);
+			if (typeof this.flushTimer === "object" && "unref" in this.flushTimer) {
+				(this.flushTimer as { unref: () => void }).unref();
+			}
 		}
 	}
 
@@ -64,14 +67,32 @@ export class StrusClient {
 	}
 
 	flush(): void {
-		if (this.flushing || this.buffer.length === 0) return;
+		if (this.pendingFlush || this.buffer.length === 0) return;
 
 		const batch = this.buffer.splice(0);
-		this.flushing = true;
-
-		this.sendBatch(batch).finally(() => {
-			this.flushing = false;
+		this.pendingFlush = this.sendBatch(batch).finally(() => {
+			this.pendingFlush = null;
 		});
+	}
+
+	flushAsync(): Promise<void> {
+		if (this.buffer.length === 0) {
+			return this.pendingFlush ?? Promise.resolve();
+		}
+
+		const batch = this.buffer.splice(0);
+
+		const pending = this.pendingFlush
+			? this.pendingFlush.then(() => this.sendBatch(batch))
+			: this.sendBatch(batch);
+
+		this.pendingFlush = pending.finally(() => {
+			if (this.pendingFlush === pending) {
+				this.pendingFlush = null;
+			}
+		});
+
+		return this.pendingFlush;
 	}
 
 	async shutdown(): Promise<void> {
@@ -87,10 +108,7 @@ export class StrusClient {
 			this.flushTimer = null;
 		}
 
-		if (this.buffer.length > 0) {
-			const batch = this.buffer.splice(0);
-			await this.sendBatch(batch);
-		}
+		await this.flushAsync();
 	}
 
 	private async sendBatch(batch: TelemetryPayload[]): Promise<void> {

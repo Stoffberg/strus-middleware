@@ -202,3 +202,93 @@ describe("StrusClient", () => {
 		expect(event.endpointId).toBe("GET /api/lowercase");
 	});
 });
+
+describe("flushAsync", () => {
+	let client: StrusClient;
+
+	afterEach(async () => {
+		if (client) await client.shutdown();
+	});
+
+	test("sends all buffered events and awaits completion", async () => {
+		const fetchMock = mock(() =>
+			Promise.resolve(new Response("{}", { status: 200 })),
+		);
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = fetchMock as any;
+
+		try {
+			client = createClient();
+
+			client.observe({
+				method: "GET",
+				path: "/api/data",
+				statusCode: 200,
+				responseBody: { ok: true },
+			});
+
+			await client.flushAsync();
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect((client as any).buffer).toHaveLength(0);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	test("resolves immediately when buffer is empty", async () => {
+		client = createClient();
+		await client.flushAsync();
+	});
+
+	test("waits for in-flight flush before sending new batch", async () => {
+		const calls: string[] = [];
+		let resolveFirst: () => void;
+		const firstCall = new Promise<void>((r) => {
+			resolveFirst = r;
+		});
+
+		const fetchMock = mock(() => {
+			calls.push("fetch");
+			if (calls.length === 1) {
+				return firstCall.then(() => new Response("{}", { status: 200 }));
+			}
+			return Promise.resolve(new Response("{}", { status: 200 }));
+		});
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = fetchMock as any;
+
+		try {
+			client = createClient();
+
+			client.observe({
+				method: "GET",
+				path: "/1",
+				statusCode: 200,
+				responseBody: { a: 1 },
+			});
+
+			const first = client.flushAsync();
+
+			client.observe({
+				method: "GET",
+				path: "/2",
+				statusCode: 200,
+				responseBody: { b: 2 },
+			});
+
+			const second = client.flushAsync();
+
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			resolveFirst!();
+			await first;
+			await second;
+
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+			expect((client as any).buffer).toHaveLength(0);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});

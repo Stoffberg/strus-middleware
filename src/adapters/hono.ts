@@ -8,6 +8,9 @@ type HonoContext = {
 	res: {
 		status: number;
 	};
+	executionCtx?: {
+		waitUntil?: (promise: Promise<unknown>) => void;
+	};
 };
 
 type HonoNext = () => Promise<void>;
@@ -39,6 +42,11 @@ export function strusHono(client: StrusClient) {
 				statusCode: c.res.status,
 				responseBody: null,
 			});
+		}
+
+		const waitUntil = c.executionCtx?.waitUntil;
+		if (waitUntil) {
+			waitUntil.call(c.executionCtx, client.flushAsync());
 		}
 	};
 }
